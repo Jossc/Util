@@ -1,8 +1,6 @@
 package com.cn.model;
 
-/**
- * Created by cn on 2016/6/26.
- */
+
 public class User {
     private int id;
     private String name;
