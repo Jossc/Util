@@ -1,0 +1,214 @@
+public class JDBCUtils {
+    static Logger log = LoggerFactory.getLogger(JDBCUtils.class);
+    private static  final QueryRunner qr = new QueryRunner();
+    private static ThreadLocal<Connection> threadLocal =
+            new ThreadLocal<Connection>();
+    public static final String dirver;
+    public static final String url;
+    public static final String username ;
+    public static final String password ;
+
+    static {
+        Properties p = PropsUtil.loadProperties("cofig.properties");
+        dirver = p.getProperty("jdbc.dirver");
+        url = p.getProperty("jdbc.url");
+        username = p.getProperty("jdbc.username");
+        password = p.getProperty("jdbc.password");
+        try {
+            Class.forName(dirver);
+        }catch (Exception e){
+            log.error("加载驱动失败"+e.getMessage());
+        }
+    }
+    /**
+     * 获取Connection
+     * Connection 加入本地线程
+     * 问题：
+     *  1.会不会造成内存泄露(不会 已测试,100条数据,1w次读取)
+     * @return
+     */
+    public static Connection getConnection(){
+        Connection connection = threadLocal.get();
+        if(connection ==null){
+            try {
+                connection = DriverManager.getConnection(url,username,password);
+            }catch (Exception e){
+                log.error("获取Connection失败"+e.getMessage());
+            }finally {
+                threadLocal.set(connection);
+            }
+        }
+        return connection;
+    }
+
+    /**
+     * 获取PreparedStatement
+     * @param sql
+     * @return
+     */
+    public static PreparedStatement getPreparedStatement(String sql){
+        try {
+            return  getConnection().prepareStatement(sql);
+        } catch (SQLException e2) {
+            log.error("PreparedStatement执行错误"+e2.getMessage());
+            return  null;
+        }
+    }
+
+    /**
+     * 执行多表联合查询
+     * @param eneityClass
+     * @param sql
+     * @param params
+     * @return
+     */
+    public static List<Map<String,Object>> execQuary(Class eneityClass,String sql,Object...params) {
+        List list = null;
+        Connection connection =null;
+        try{
+            connection = getConnection();
+            list = qr.query(connection,sql,new MapListHandler(),params);
+        }catch (Exception e){
+            log.error(""+e.getMessage());
+        }
+        return list;
+    }
+
+    /**
+     * 更新
+     * @param sql
+     * @param param
+     * @return
+     */
+    public static int exceUpdata(String sql,Object ... param){
+        int row =0;
+        try{
+            Connection connection = getConnection();
+            row = qr.update(connection,sql,param);
+        }catch (Exception e){
+            log.error(e.getMessage()+"更新错误");
+        }
+        return row;
+    }
+
+    /**
+     * 插入实体
+     * @param entityClass
+     * @param map
+     * @return
+     */
+    public static Boolean insertEntity(Class entityClass,Map<String ,Object> map){
+        if(CollonUtils.isEmpty(map)){
+            log.error("不能更新这个实体");
+            return false;
+        }
+        String sql = "insert into"+ getTableName(entityClass);
+        StringBuilder columns = new StringBuilder("(");
+        StringBuilder value = new StringBuilder("(");
+        for(String fieldName :map.keySet()){
+            columns.append(fieldName).append(",");
+            value.append("?,");
+        }
+        columns.replace(columns.lastIndexOf(","),columns.length(),")");
+        System.out.println(columns);
+        value.replace(value.lastIndexOf(","),value.length(),")");
+        sql +=columns+"values"+value;
+        Object[]params = map.values().toArray();
+        return  exceUpdata(sql,params)==1;
+    }
+
+    /**
+     * 更新实体
+     * @param entityClass
+     * @param id
+     * @param map
+     * @return
+     */
+    public static boolean updateEntity(Class entityClass,int id,Map<String,Object> map){
+            if(CollonUtils.isEmpty(map)){
+                return false;
+            }
+        String sql = "update" + getTableName(entityClass)+"set";
+        StringBuilder columns = new StringBuilder();
+        for(String name : map.keySet()){
+            columns.append(name).append("=?,");
+        }
+        sql+=columns.substring(0,columns.lastIndexOf(","))+"where id =? ";
+        List<Object> list = new ArrayList<Object>();
+        list.add(map.values());
+        list.add(id);
+        Object[] params = list.toArray();
+       return  exceUpdata(sql,params)==1;
+    }
+
+    /**
+     * 更新
+     * @param sql
+     * @return
+     */
+    public static  int exceUpdata(String sql){
+        int row =0;
+        try {
+            PreparedStatement ps = getPreparedStatement(sql);
+            row = ps.executeUpdate();
+            System.out.println(row);
+        }catch (Exception e){
+            log.error("更新错误"+e.getMessage());
+        }
+        return  row;
+    }
+
+    /**
+     * 删除实体
+     * @param entityClass
+     * @param id
+     * @return
+     */
+    public static boolean deldteEntity(Class entityClass,int id){
+        String sql ="delete from " +getTableName(entityClass)+"where id =?";
+        return exceUpdata(sql,id)==1;
+    }
+    /**
+     * 关闭所有
+     * 将Connection 移除
+     * @param connection
+     * @param ps
+     * @param resultSet
+     */
+    public static void closeAll(Connection connection, PreparedStatement ps, ResultSet resultSet){
+        if(connection!=null){
+            try {
+                connection.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }finally {
+                threadLocal.remove();
+            }
+        }
+        if(ps!=null){
+            try {
+                ps.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+        if (resultSet!=null){
+            try {
+                resultSet.close();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+    /**
+     * 获取表名
+     * @param c
+     * @return
+     */
+    public static String  getTableName(Class c){
+        String value = c.getName();
+        String name = value.substring(value.lastIndexOf(".")+1);
+        System.out.println(name);
+        return  name;
+    }
+}
